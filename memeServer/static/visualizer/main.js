@@ -1,3 +1,5 @@
+var base_url =  location.hostname == "memetrades.com" ? ".." : "http://memetrades.com";
+
 var svg = d3.select("svg"),
 	width = window.innerWidth || +svg.attr("width"),
 	height = window.innerHeight || +svg.attr("height");
@@ -48,7 +50,7 @@ $(document).ready(function() {
 });
 
 function getData() {
-	d3.json("/api/stocks", function (error, json) {
+	d3.json(base_url + "/api/stocks", function (error, json) {
 		if (error) throw error;
 
 		// Scrape JSON
@@ -64,15 +66,15 @@ function getData() {
 		.attr("stroke-width", (d) => Math.sqrt(d.value));
 		 */
 
-		// Create node
+		// Get node selection node
 		var node = svg.append("g")
 			.attr("class", "nodes")
 			.selectAll("circle")
-			.data(data)
-			.enter().append("circle")
-			.attr("class", "node")
+			.data(data);
 
-		updateNode(node);
+		var circle = appendCircle(node.enter());
+		updateCircle(circle);
+		window.circle = circle;
 
 		simulation
 			.nodes(data)
@@ -81,52 +83,67 @@ function getData() {
 		/* simulation.force("link")
 		   .links(graph.links);
 		 */
-
-		function ontick() {
-			// Update values
-			/*
-			   link
-			   .attr("x1", (d) => d.source.x)
-			   .attr("y1", (d) => d.source.y)
-			   .attr("x2", (d) => d.target.x)
-			   .attr("y2", (d) => d.target.y);
-			 */
-
-			node
-				.attr("cx", (d) => d.x)
-				.attr("cy", (d) => d.y);
-		}
 	});
 }
 
 function updateData() {
-	d3.json("/api/stocks", function (error, json) {
+	d3.json(base_url + "/api/stocks", function (error, json) {
 		if (error) throw error;
 
 		// Scrape data
 		var data = scrapeJSON(json);
 
+		// TODO test: add mock data
+		// var mock = { name: "TEST", price: 1000 * Math.random() };
+		// data.push(mock);
+		// console.log(mock);
+
 		// Update nodes and add new ones as needed
 		var node = svg.select("g")
 			.selectAll("circle")
-			.data(data)
-			.enter().append("circle") // don't use this
-			.attr("class", "node");
+			.data(data);
 
-		updateNode(node);
+		// Update existing circles
+		var circle = appendCircle(node);
+		updateCircle(circle);
+		window.circle = circle;
 
-		node.each((d) => {
-			console.log(d.radius);
-			d.fx = d.x;
-			d.fy = d.y;
-		})
+		// Add new circles
+		var circleEnter = appendCircle(node.enter());
+		updateCircle(circleEnter);
 
-		simulation.nodes(data);
+		// Remove unneeded circles
+		circle.exit().remove();
+
+		// TODO Show count
+		var count = 0;
+		node.each((d) => { count++; });
+		console.log(count);
+
+		simulation
+			.nodes(data)
+			.on("tick", ontick);
+		simulation.restart();
 
 	});
 }
 
 /* Events */
+function ontick() {
+	// Update values
+	/*
+	   link
+	   .attr("x1", (d) => d.source.x)
+	   .attr("y1", (d) => d.source.y)
+	   .attr("x2", (d) => d.target.x)
+	   .attr("y2", (d) => d.target.y);
+	   */
+
+	window.circle
+		.attr("cx", (d) => d.x)
+		.attr("cy", (d) => d.y);
+}
+
 function ondragstart(d) {
 	if (!d3.event.active) simulation.alphaTarget(0.3).restart();
 	d.fx = d.x;
@@ -164,40 +181,46 @@ function onmousemove(d) {
 
 function onclick(d) {
 	// TODO tmp
-	updateData();
+	// updateData();
 }
 
 /* Helpers */
 // Scrape JSON into a list of stocks of { name, price }
 function scrapeJSON(json) {
 	var data = [];
-	Object.entries(json).forEach(([key, value]) => {
-		var stock = { name: key, price: value };
+	json.forEach((key, value) => {
+		var stock = { name: key.name, price: key.price, trend: key.trend };
 		data.push(stock);
 	});
 	return data;
 }
 
-function updateNode(node) {
+function appendCircle(node) {
+	return node.append("circle")
+		.attr("class", "node");
+}
+
+function updateCircle(circle) {
 	// Set cutom properties
 	// Don't use arrow function => because `this` is rebound
-	node.each(function (d, i, nodes) {
+	circle.each(function (d, i, nodes) {
 		d.color = color(d.name);
 		d.color_hover = color(d.name+1); // change it a bit TODO
 		d.radius = d.price;
 	});
 
 	// Title (on hover)
-	node.append("title")
+	circle.append("title")
 		.text((d) => d.name);
 
 	// Size and color
-	node.attr("r", (d) => d.radius)
+	circle.transition()
+		.attr("r", (d) => d.radius)
 		.attr("fill", (d) => d.color)
 		.attr("style", "stroke-width: 0");
 
 	// Mouse events
-	node.call(d3.drag()
+	circle.call(d3.drag()
 			.on("start", ondragstart)
 			.on("drag", ondrag)
 			.on("end", ondragend))
@@ -209,6 +232,8 @@ function updateNode(node) {
 			onOpen: () => { },
 			onClose: () => { }
 		}));
+
+	return circle;
 };
 
 function showTooltip(d) {
@@ -226,21 +251,15 @@ function hideTooltip() {
 	tooltip.style("visibility", "hidden");
 }
 
-/* Business logic */
-var iframe = d3.select("body").append("iframe").node();
-
-// Buy meme
-function buyMeme(meme, n) {
-	n = n || 1;
-	var get_url = "http://hgreer.com/meme/buy?meme="+meme;
-	iframe.src = get_url;
-	// alert("Bought meme: " + meme);
+// This is the same as in index.js
+// Should probably move to a common file
+function sell() {
+    var meme = document.getElementById("meme").value;
+    $.get(base_url+"/api/sell", {meme: meme}, update)
 }
 
-// Sell meme
-function sellMeme(meme, n) {
-	n = n || 1;
-	var get_url = "http://hgreer.com/meme/sell?meme="+meme;
-	iframe.src = get_url;
-	// alert("Sold meme: " + meme);
+
+function buy() {
+    var meme = document.getElementById("meme").value;
+    $.get(base_url+"/api/buy", {meme: meme}, update)
 }
